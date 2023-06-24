@@ -1,6 +1,8 @@
-﻿using Application.Features.LeaveAllocations.Requests.Commands;
+﻿using Application.Exceptions;
+using Application.Features.LeaveAllocations.Requests.Commands;
 using Application.Persistence.Contracts;
 using AutoMapper;
+using Domain;
 using MediatR;
 
 namespace Application.Features.LeaveAllocations.Handlers.Commands
@@ -19,6 +21,8 @@ namespace Application.Features.LeaveAllocations.Handlers.Commands
         public async Task<Unit> Handle(DeleteLeaveAllocationCommand request, CancellationToken cancellationToken)
         {
             var leaveAllocation = await _leaveAllocationRepository.Get(request.Id);
+
+            if (leaveAllocation == null) throw new NotFoundException(nameof(LeaveAllocation), request.Id);
 
             await _leaveAllocationRepository.Delete(leaveAllocation);
 
