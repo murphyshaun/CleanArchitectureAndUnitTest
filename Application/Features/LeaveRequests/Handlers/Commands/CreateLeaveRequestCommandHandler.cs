@@ -1,52 +1,97 @@
-﻿using Application.DTOs.LeaveRequest.Validators;
-using Application.Exceptions;
+﻿using Application.Constants;
+using Application.Contracts.Infrastructure;
+using Application.Contracts.Persistence;
+using Application.DTOs.LeaveRequest.Validators;
 using Application.Features.LeaveRequests.Requests.Commands;
-using Application.Persistence.Contracts;
+using Application.Models;
 using Application.Responses;
 using AutoMapper;
 using Domain;
 using MediatR;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 
 namespace Application.Features.LeaveRequests.Handlers.Commands
 {
     public class CreateLeaveRequestCommandHandler : IRequestHandler<CreateLeaveRequestCommand, BaseCommandResponse>
     {
-        private readonly ILeaveRequestRepository _leaveRequestRepository;
-        private readonly ILeaveTypeRepository _leaveTypeRepository;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly IEmailSender _emailSender;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IMapper _mapper;
 
         public CreateLeaveRequestCommandHandler(
-            ILeaveRequestRepository leaveRequestRepository,
-            ILeaveTypeRepository leaveTypeRepository,
+            IUnitOfWork unitOfWork,
+            IEmailSender emailSender,
+            IHttpContextAccessor httpContextAccessor,
             IMapper mapper)
         {
-            _leaveRequestRepository = leaveRequestRepository;
-            _leaveTypeRepository = leaveTypeRepository;
+            _unitOfWork = unitOfWork;
+            _emailSender = emailSender;
+            _httpContextAccessor = httpContextAccessor;
             _mapper = mapper;
         }
 
         public async Task<BaseCommandResponse> Handle(CreateLeaveRequestCommand request, CancellationToken cancellationToken)
         {
-            var validator = new CreateLeaveRequestDtoValidator(_leaveTypeRepository);
-            var validatorResult = await validator.ValidateAsync(request.LeaveRequestDto);
+            var response = new BaseCommandResponse();
+            var validator = new CreateLeaveRequestDtoValidator(_unitOfWork.LeaveTypeRepository);
+            var validationResult = await validator.ValidateAsync(request.LeaveRequestDto);
 
-            var response = new BaseCommandResponse()
+            var userId = _httpContextAccessor.HttpContext.User.Claims.FirstOrDefault(
+                    q => q.Type == CustomClaimTypes.Uid)?.Value;
+
+            var allocation = await _unitOfWork.LeaveAllocationRepository.GetUserAllocations(userId, request.LeaveRequestDto.LeaveTypeId);
+            if (allocation is null)
             {
-                Message = "Creation Sucessfull",
-            };
-
-            if (!validatorResult.IsValid)
+                validationResult.Errors.Add(new FluentValidation.Results.ValidationFailure(nameof(request.LeaveRequestDto.LeaveTypeId),
+                    "You do not have any allocations for this leave type."));
+            }
+            else
             {
-                response.IsSuccess = false;
-                response.Message = "Creation Failed";
-                response.Errors = validatorResult.Errors.Select(c => c.ErrorMessage).ToList();
-            };
+                int daysRequested = (int)(request.LeaveRequestDto.EndDate - request.LeaveRequestDto.StartDate).TotalDays;
+                if (daysRequested > allocation.NumberOfDays)
+                {
+                    validationResult.Errors.Add(new FluentValidation.Results.ValidationFailure(
+                        nameof(request.LeaveRequestDto.EndDate), "You do not have enough days for this request"));
+                }
+            }
 
-            var leaveRequest = _mapper.Map<LeaveRequest>(request.LeaveRequestDto);
+            if (!validationResult.IsValid)
+            {
+                response.Message = "Request Failed";
+                response.Errors = validationResult.Errors.Select(q => q.ErrorMessage).ToList();
+            }
+            else
+            {
+                var leaveRequest = _mapper.Map<LeaveRequest>(request.LeaveRequestDto);
+                leaveRequest.RequestingEmployeeId = userId;
+                leaveRequest = await _unitOfWork.LeaveRequestRepository.Add(leaveRequest);
+                await _unitOfWork.Save();
 
-            leaveRequest = await _leaveRequestRepository.Add(leaveRequest);
+                response.IsSuccess = true;
+                response.Message = "Request Created Successfully";
+                response.Id = leaveRequest.Id;
 
-            response.Id = leaveRequest.Id;
+                try
+                {
+                    var emailAddress = _httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.Email).Value;
+
+                    var email = new Email
+                    {
+                        To = emailAddress,
+                        Body = $"Your leave request for {request.LeaveRequestDto.StartDate:D} to {request.LeaveRequestDto.EndDate:D} " +
+                        $"has been submitted successfully.",
+                        Subject = "Leave Request Submitted"
+                    };
+
+                    await _emailSender.SendEmail(email);
+                }
+                catch (Exception ex)
+                {
+                    //// Log or handle error, but don't throw...
+                }
+            }
 
             return response;
         }

@@ -1,4 +1,5 @@
-﻿using Application.DTOs.LeaveType;
+﻿using Application.Contracts.Persistence;
+using Application.DTOs.LeaveType;
 using Application.Features.LeaveTypes.Requests.Queries;
 using Application.Persistence.Contracts;
 using AutoMapper;
@@ -8,18 +9,20 @@ namespace Application.Features.LeaveTypes.Handlers.Queries
 {
     public class GetLeaveTypeListRequestHandler : IRequestHandler<GetLeaveTypeListRequest, List<LeaveTypeDto>>
     {
-        private readonly ILeaveTypeRepository _leaveTypeRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public GetLeaveTypeListRequestHandler(ILeaveTypeRepository leaveTypeRepository, IMapper mapper)
+        public GetLeaveTypeListRequestHandler(
+            IUnitOfWork unitOfWork,
+            IMapper mapper)
         {
-            _leaveTypeRepository = leaveTypeRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
         public async Task<List<LeaveTypeDto>> Handle(GetLeaveTypeListRequest request, CancellationToken cancellationToken)
         {
-            var leaveTypes = await _leaveTypeRepository.GetAll();
+            var leaveTypes = await _unitOfWork.LeaveTypeRepository.GetAll();
             return _mapper.Map<List<LeaveTypeDto>>(leaveTypes);
         }
     }

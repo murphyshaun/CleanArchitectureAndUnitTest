@@ -1,5 +1,6 @@
 ﻿using Application.DTOs.Common;
 using Application.DTOs.LeaveType;
+using Application.Models.Identity;
 
 namespace Application.DTOs.LeaveRequest
 {
@@ -9,9 +10,9 @@ namespace Application.DTOs.LeaveRequest
 
         public DateTime EndDate { get; set; }
 
-        //public Employee Employee { get; set; }
+        public Employee Employee { get; set; }
 
-        //public string RequestingEmployeeId { get; set; }
+        public string RequestingEmployeeId { get; set; }
 
         public LeaveTypeDto LeaveType { get; set; }
 

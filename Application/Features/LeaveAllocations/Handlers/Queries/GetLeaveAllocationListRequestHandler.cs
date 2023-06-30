@@ -1,27 +1,65 @@
-﻿using Application.DTOs.LeaveAllocation;
+﻿using Application.Constants;
+using Application.Contracts.Identity;
+using Application.Contracts.Persistence;
+using Application.DTOs.LeaveAllocation;
 using Application.Features.LeaveAllocations.Requests.Queries;
-using Application.Persistence.Contracts;
 using AutoMapper;
+using Domain;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 
 namespace Application.Features.LeaveAllocations.Handlers.Queries
 {
     public class GetLeaveAllocationListRequestHandler : IRequestHandler<GetLeaveAllocationListRequest, List<LeaveAllocationDto>>
     {
-        private readonly ILeaveAllocationRepository _leaveAllocationRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IUserService _userService;
 
-        public GetLeaveAllocationListRequestHandler(ILeaveAllocationRepository leaveAllocationRepository, IMapper mapper)
+        public GetLeaveAllocationListRequestHandler(
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            IHttpContextAccessor httpContextAccessor,
+            IUserService userService)
         {
-            _leaveAllocationRepository = leaveAllocationRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _httpContextAccessor = httpContextAccessor;
+            _userService = userService;
         }
 
         public async Task<List<LeaveAllocationDto>> Handle(GetLeaveAllocationListRequest request, CancellationToken cancellationToken)
         {
-            var leaveAllocations = await _leaveAllocationRepository.GetLeaveAllocationsWithDetails();
+            var leaveAllocations = new List<LeaveAllocation>();
+            var allocations = new List<LeaveAllocationDto>();
 
-            return _mapper.Map<List<LeaveAllocationDto>>(leaveAllocations);
+            if (request.IsLoggedInUser)
+            {
+                var userId = _httpContextAccessor.HttpContext.User.FindFirst(
+                    q => q.Type == CustomClaimTypes.Uid)?.Value;
+                leaveAllocations = await _unitOfWork.LeaveAllocationRepository.GetLeaveAllocationsWithDetails(userId);
+
+                var employee = await _userService.GetEmployee(userId);
+                allocations = _mapper.Map<List<LeaveAllocationDto>>(leaveAllocations);
+
+                foreach (var alloc in allocations)
+                {
+                    alloc.Employee = employee;
+                }
+            }
+            else
+            {
+                leaveAllocations = await _unitOfWork.LeaveAllocationRepository.GetLeaveAllocationsWithDetails();
+                allocations = _mapper.Map<List<LeaveAllocationDto>>(leaveAllocations);
+
+                foreach (var req in allocations)
+                {
+                    req.Employee = await _userService.GetEmployee(req.EmployeeId);
+                }
+            }
+
+            return allocations;
         }
     }
 }

@@ -1,6 +1,6 @@
-﻿using Application.DTOs.LeaveAllocation;
+﻿using Application.Contracts.Persistence;
+using Application.DTOs.LeaveAllocation;
 using Application.Features.LeaveAllocations.Requests.Queries;
-using Application.Persistence.Contracts;
 using AutoMapper;
 using MediatR;
 
@@ -8,18 +8,20 @@ namespace Application.Features.LeaveAllocations.Handlers.Queries
 {
     public class GetLeaveAllocationDetailRequestHandler : IRequestHandler<GetLeaveAllocationDetailRequest, LeaveAllocationDto>
     {
-        private readonly ILeaveAllocationRepository _leaveAllocationRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public GetLeaveAllocationDetailRequestHandler(ILeaveAllocationRepository leaveAllocationRepository, IMapper mapper)
+        public GetLeaveAllocationDetailRequestHandler(
+            IUnitOfWork unitOfWork,
+            IMapper mapper)
         {
-            _leaveAllocationRepository = leaveAllocationRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
         public async Task<LeaveAllocationDto> Handle(GetLeaveAllocationDetailRequest request, CancellationToken cancellationToken)
         {
-            var leaveAllocation = await _leaveAllocationRepository.GetLeaveAllocationWithDetails(request.Id);
+            var leaveAllocation = await _unitOfWork.LeaveAllocationRepository.GetLeaveAllocationWithDetails(request.Id);
             return _mapper.Map<LeaveAllocationDto>(leaveAllocation);
         }
     }
